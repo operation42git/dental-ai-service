@@ -1,0 +1,25 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual envs
+.venv/
+env/
+venv/
+
+# Editors / IDEs
+.vscode/
+.idea/
+
+# Model files / archives
+models/
+*.pt
+*.pth
+*.tar.gz
+
+# Environment / secrets
+.env
+*.env
