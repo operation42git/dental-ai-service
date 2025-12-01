@@ -81,15 +81,92 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
 
     # Run inference
     logger.info("Running semantic segmentation...")
+    print("[INFERENCE] Running semantic segmentation...", flush=True)
+    
+    # Log memory usage before inference
+    try:
+        import psutil
+        import os
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        mem_mb = mem_info.rss / 1024 / 1024
+        mem_percent = process.memory_percent()
+        logger.info(f"Memory usage before semantic segmentation: {mem_mb:.2f} MB ({mem_percent:.1f}%)")
+        print(f"[INFERENCE] Memory before semantic seg: {mem_mb:.2f} MB ({mem_percent:.1f}%)", flush=True)
+        
+        # Also log system memory
+        sys_mem = psutil.virtual_memory()
+        logger.info(f"System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)")
+        print(f"[INFERENCE] System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)", flush=True)
+    except ImportError:
+        logger.warning("psutil not available, cannot monitor memory")
+        print("[INFERENCE] WARNING: psutil not available, cannot monitor memory", flush=True)
+    except Exception as e:
+        logger.warning(f"Could not get memory info: {e}")
+        print(f"[INFERENCE] WARNING: Could not get memory info: {e}", flush=True)
+    
     import time
     start_time = time.time()
-    semseg_pred = semseg_module(image, output_dir=image_output_dir)
-    logger.info(f"Semantic segmentation completed in {time.time() - start_time:.2f} seconds")
+    try:
+        semseg_pred = semseg_module(image, output_dir=image_output_dir)
+        elapsed = time.time() - start_time
+        logger.info(f"Semantic segmentation completed in {elapsed:.2f} seconds")
+        print(f"[INFERENCE] Semantic segmentation completed in {elapsed:.2f} seconds", flush=True)
+        
+        # Log memory after semantic segmentation
+        try:
+            import psutil
+            import os
+            process = psutil.Process(os.getpid())
+            mem_info = process.memory_info()
+            mem_mb = mem_info.rss / 1024 / 1024
+            mem_percent = process.memory_percent()
+            logger.info(f"Memory usage after semantic segmentation: {mem_mb:.2f} MB ({mem_percent:.1f}%)")
+            print(f"[INFERENCE] Memory after semantic seg: {mem_mb:.2f} MB ({mem_percent:.1f}%)", flush=True)
+            
+            sys_mem = psutil.virtual_memory()
+            logger.info(f"System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)")
+            print(f"[INFERENCE] System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)", flush=True)
+        except Exception:
+            pass
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"Semantic segmentation failed after {elapsed:.2f} seconds: {e}")
+        print(f"[INFERENCE] ERROR: Semantic segmentation failed after {elapsed:.2f} seconds: {e}", flush=True)
+        raise
     
     logger.info("Running instance detection...")
+    print("[INFERENCE] Running instance detection...", flush=True)
+    
+    # Log memory usage before instance detection
+    try:
+        import psutil
+        import os
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        mem_mb = mem_info.rss / 1024 / 1024
+        mem_percent = process.memory_percent()
+        logger.info(f"Memory usage before instance detection: {mem_mb:.2f} MB ({mem_percent:.1f}%)")
+        print(f"[INFERENCE] Memory before instance detection: {mem_mb:.2f} MB ({mem_percent:.1f}%)", flush=True)
+        
+        sys_mem = psutil.virtual_memory()
+        logger.info(f"System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)")
+        print(f"[INFERENCE] System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)", flush=True)
+    except Exception as e:
+        logger.warning(f"Could not get memory info: {e}")
+        print(f"[INFERENCE] WARNING: Could not get memory info: {e}", flush=True)
+    
     start_time = time.time()
-    insdet_pred = insdet_module(image, output_dir=image_output_dir)
-    logger.info(f"Instance detection completed in {time.time() - start_time:.2f} seconds")
+    try:
+        insdet_pred = insdet_module(image, output_dir=image_output_dir)
+        elapsed = time.time() - start_time
+        logger.info(f"Instance detection completed in {elapsed:.2f} seconds")
+        print(f"[INFERENCE] Instance detection completed in {elapsed:.2f} seconds", flush=True)
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"Instance detection failed after {elapsed:.2f} seconds: {e}")
+        print(f"[INFERENCE] ERROR: Instance detection failed after {elapsed:.2f} seconds: {e}", flush=True)
+        raise
     
     logger.info("Running post-processing...")
     finding_entries = postproc_module(semseg_pred, insdet_pred)
