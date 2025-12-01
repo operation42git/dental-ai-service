@@ -63,14 +63,10 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     except ValueError:
         output_dir_relative = str(output_dir.resolve())
     
-    # Build command using poetry run
-    # Use python -m poetry for better compatibility in Docker environments
-    # where Poetry might not be in PATH but is installed via pip
+    # Build command - use system Python directly
+    # Dependencies are installed into system Python during Docker build
+    # (Poetry is configured with virtualenvs.create=false)
     cmd = [
-        settings.PYTHON_EXECUTABLE,
-        "-m",
-        "poetry",
-        "run",
         settings.PYTHON_EXECUTABLE,
         "main.py",
         "--input",
