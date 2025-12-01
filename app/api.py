@@ -6,11 +6,25 @@ import uuid
 import os
 import re
 import asyncio
+import logging
+import traceback
 
 from .inference import run_dental_pano_ai
 from .config import settings
 from .s3_upload import upload_results_to_s3
-from .models import model_manager
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# Import model_manager with error handling
+try:
+    from .models import model_manager
+    MODELS_AVAILABLE = True
+except Exception as e:
+    logger.error(f"Failed to import model_manager: {e}")
+    logger.error(traceback.format_exc())
+    model_manager = None
+    MODELS_AVAILABLE = False
 
 app = FastAPI(title="Dental AI Inference Service")
 
@@ -18,19 +32,42 @@ app = FastAPI(title="Dental AI Inference Service")
 @app.on_event("startup")
 async def startup_event():
     """Validate configuration and load AI models on startup."""
-    settings.validate()
-    
-    # Load models into memory once at startup
-    # This is much faster than loading on each request
-    # We load with debug=True so visualization images work when requested
-    print("Loading AI models into memory...")
-    model_manager.load_models(debug=True)
-    print("AI models loaded successfully!")
+    try:
+        logger.info("Starting application startup...")
+        settings.validate()
+        logger.info("Configuration validated successfully")
+        
+        if not MODELS_AVAILABLE:
+            logger.error("Model manager not available. Models will be loaded on first request (slower).")
+            return
+        
+        # Load models into memory once at startup
+        # This is much faster than loading on each request
+        # We load with debug=True so visualization images work when requested
+        logger.info("Loading AI models into memory...")
+        try:
+            model_manager.load_models(debug=True)
+            logger.info("AI models loaded successfully!")
+        except Exception as e:
+            logger.error(f"Failed to load models at startup: {e}")
+            logger.error(traceback.format_exc())
+            logger.warning("Models will be loaded on first request (slower)")
+            # Don't fail startup - allow lazy loading
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        logger.error(traceback.format_exc())
+        # Re-raise to fail fast if it's a critical error
+        raise
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Health check endpoint."""
+    status = {
+        "status": "ok",
+        "models_loaded": MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
+    }
+    return status
 
 
 @app.post("/analyze-ortopan")

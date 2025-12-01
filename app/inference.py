@@ -3,9 +3,21 @@ from pathlib import Path
 import uuid
 import numpy as np
 from PIL import Image
+import logging
 
 from .config import settings
-from .models import model_manager, FindingAssessment
+
+logger = logging.getLogger(__name__)
+
+# Import model_manager with error handling
+try:
+    from .models import model_manager, FindingAssessment
+    MODELS_AVAILABLE = True
+except Exception as e:
+    logger.error(f"Failed to import model_manager: {e}")
+    model_manager = None
+    FindingAssessment = None
+    MODELS_AVAILABLE = False
 
 
 def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
@@ -33,10 +45,21 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     if not input_path.exists():
         raise FileNotFoundError(f"Input image not found: {input_path}")
 
-    if not model_manager.is_loaded():
+    if not MODELS_AVAILABLE or not model_manager:
         raise RuntimeError(
-            "Models are not loaded. Make sure the application started successfully."
+            "Model manager not available. Cannot run inference."
         )
+    
+    if not model_manager.is_loaded():
+        # Try to load models now (lazy loading fallback)
+        logger.warning("Models not loaded, loading now (this will be slow)...")
+        try:
+            model_manager.load_models(debug=debug)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load models: {e}. "
+                "Make sure the application started successfully and models are available."
+            ) from e
 
     # Unique output directory per request
     out_id = uuid.uuid4().hex

@@ -1,23 +1,35 @@
 """Model initialization and management for dental-pano-ai modules."""
 import sys
+import logging
 from pathlib import Path
 from typing import Optional
 
 from .config import settings
 
-# Add dental-pano-ai directory to Python path so we can import its modules
-_dental_pano_ai_path = str(settings.DENTAL_PANO_AI_REPO_DIR)
-if _dental_pano_ai_path not in sys.path:
-    sys.path.insert(0, _dental_pano_ai_path)
+logger = logging.getLogger(__name__)
+
+# Validate dental-pano-ai directory exists before trying to import
+_dental_pano_ai_path = Path(settings.DENTAL_PANO_AI_REPO_DIR)
+if not _dental_pano_ai_path.exists():
+    raise FileNotFoundError(
+        f"Dental-pano-ai repository directory not found: {_dental_pano_ai_path}. "
+        "Make sure the repository is cloned and DENTAL_PANO_AI_REPO_DIR is set correctly."
+    )
+
+_dental_pano_ai_path_str = str(_dental_pano_ai_path)
+if _dental_pano_ai_path_str not in sys.path:
+    sys.path.insert(0, _dental_pano_ai_path_str)
 
 # Import the modules from dental-pano-ai
 try:
+    logger.info(f"Importing dental-pano-ai modules from {_dental_pano_ai_path_str}")
     from main import (
         SemanticSegmentationModule,
         InstanceDetectionModule,
         PostProcessingModule,
         FindingAssessment,
     )
+    logger.info("Successfully imported dental-pano-ai modules")
     # Re-export for convenience
     __all__ = [
         "SemanticSegmentationModule",
@@ -28,6 +40,7 @@ try:
         "model_manager",
     ]
 except ImportError as e:
+    logger.error(f"Failed to import dental-pano-ai modules from {_dental_pano_ai_path}: {e}")
     raise ImportError(
         f"Failed to import dental-pano-ai modules. "
         f"Make sure the repository is at {settings.DENTAL_PANO_AI_REPO_DIR}. "
@@ -52,7 +65,11 @@ class ModelManager:
             debug: If True, enables debug mode for visualization images
         """
         if self._loaded:
+            logger.info("Models already loaded, skipping")
             return
+        
+        logger.info(f"Starting model loading (debug={debug})...")
+        logger.info(f"Models directory: {settings.MODELS_DIR}")
         
         deeplab_config = settings.MODELS_DIR / "deeplab" / "config.yaml"
         deeplab_weights = settings.MODELS_DIR / "deeplab" / "model.pth"
@@ -60,6 +77,7 @@ class ModelManager:
         yolo_weights = settings.MODELS_DIR / "yolo" / "model.pt"
         
         # Validate model files exist
+        logger.info("Validating model files...")
         if not deeplab_config.exists():
             raise FileNotFoundError(f"DeepLab config not found: {deeplab_config}")
         if not deeplab_weights.exists():
@@ -68,23 +86,38 @@ class ModelManager:
             raise FileNotFoundError(f"YOLO config not found: {yolo_config}")
         if not yolo_weights.exists():
             raise FileNotFoundError(f"YOLO weights not found: {yolo_weights}")
+        logger.info("All model files found")
         
         # Initialize modules (this loads models into memory)
-        self.semseg_module = SemanticSegmentationModule(
-            config_path=str(deeplab_config),
-            weights_path=str(deeplab_weights),
-            debug=debug,
-        )
+        logger.info("Loading DeepLab (semantic segmentation) model...")
+        try:
+            self.semseg_module = SemanticSegmentationModule(
+                config_path=str(deeplab_config),
+                weights_path=str(deeplab_weights),
+                debug=debug,
+            )
+            logger.info("DeepLab model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load DeepLab model: {e}")
+            raise
         
-        self.insdet_module = InstanceDetectionModule(
-            config_path=str(yolo_config),
-            weights_path=str(yolo_weights),
-            debug=debug,
-        )
+        logger.info("Loading YOLO (instance detection) model...")
+        try:
+            self.insdet_module = InstanceDetectionModule(
+                config_path=str(yolo_config),
+                weights_path=str(yolo_weights),
+                debug=debug,
+            )
+            logger.info("YOLO model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load YOLO model: {e}")
+            raise
         
+        logger.info("Initializing post-processing module...")
         self.postproc_module = PostProcessingModule()
         
         self._loaded = True
+        logger.info("All models loaded successfully!")
     
     def is_loaded(self) -> bool:
         """Check if models are loaded."""
