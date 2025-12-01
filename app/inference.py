@@ -80,9 +80,20 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     image_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run inference
+    logger.info("Running semantic segmentation...")
+    import time
+    start_time = time.time()
     semseg_pred = semseg_module(image, output_dir=image_output_dir)
+    logger.info(f"Semantic segmentation completed in {time.time() - start_time:.2f} seconds")
+    
+    logger.info("Running instance detection...")
+    start_time = time.time()
     insdet_pred = insdet_module(image, output_dir=image_output_dir)
+    logger.info(f"Instance detection completed in {time.time() - start_time:.2f} seconds")
+    
+    logger.info("Running post-processing...")
     finding_entries = postproc_module(semseg_pred, insdet_pred)
+    logger.info(f"Post-processing completed, found {len(finding_entries)} entries")
 
     # Generate CSV output
     csv_path = output_dir / f"{input_path.stem}.csv"

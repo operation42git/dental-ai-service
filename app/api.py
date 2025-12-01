@@ -8,6 +8,7 @@ import re
 import asyncio
 import logging
 import traceback
+import time
 
 from .inference import run_dental_pano_ai
 from .config import settings
@@ -86,6 +87,16 @@ def health():
     return status
 
 
+@app.get("/test")
+def test_endpoint():
+    """Simple test endpoint to verify the app is responding."""
+    return {
+        "message": "App is running",
+        "timestamp": time.time(),
+        "models_loaded": MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
+    }
+
+
 @app.post("/analyze-ortopan")
 async def analyze_ortopan(
     file: UploadFile = File(...),
@@ -112,9 +123,16 @@ async def analyze_ortopan(
         shutil.copyfileobj(file.file, f)
 
     try:
+        logger.info(f"Starting inference for file: {file.filename}, debug={debug}")
+        logger.info(f"Models loaded: {MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)}")
+        
         # Run inference in a thread pool to avoid blocking the event loop
         # AI inference can take several minutes, so we run it asynchronously
+        import time
+        start_time = time.time()
         result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
+        elapsed_time = time.time() - start_time
+        logger.info(f"Inference completed in {elapsed_time:.2f} seconds")
         
         # Normalize S3 prefix:
         # 1. Strip leading/trailing whitespace
