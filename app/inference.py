@@ -38,40 +38,10 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     output_dir = output_dir.resolve()  # Convert to absolute path
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Get Poetry's virtual environment Python path
-    # This ensures we use the Python that has all dependencies installed
-    try:
-        poetry_env_result = subprocess.run(
-            [settings.POETRY_EXECUTABLE, "env", "info", "--path"],
-            cwd=str(settings.DENTAL_PANO_AI_REPO_DIR),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        poetry_env_path = Path(poetry_env_result.stdout.strip())
-        
-        # Determine Python executable path in Poetry's venv
-        if os.name == "nt":  # Windows
-            python_exe = poetry_env_path / "Scripts" / "python.exe"
-        else:  # Unix-like
-            python_exe = poetry_env_path / "bin" / "python"
-        
-        if not python_exe.exists():
-            raise RuntimeError(
-                f"Poetry Python executable not found at {python_exe}. "
-                "Make sure Poetry dependencies are installed: cd dental-pano-ai && poetry install"
-            )
-        
-        python_cmd = str(python_exe)
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Failed to get Poetry environment path. "
-            f"Make sure Poetry is installed and dependencies are set up: cd dental-pano-ai && poetry install. "
-            f"Error: {e.stderr}"
-        ) from e
-    
     # Build the command.
-    # Use Poetry's virtual environment Python directly to ensure all dependencies are available
+    # Use 'poetry run' to ensure the script runs with Poetry's virtual environment
+    # which has all the dependencies installed (absl-py, torch, etc.)
+    # This works reliably in both local and Docker environments.
     # main.py supports --input and --output; models default to ./models/* per README.
     # We rely on those defaults by setting cwd=REPO_DIR.
     # Convert paths to relative paths from REPO_DIR to avoid Windows absolute path issues.
@@ -93,8 +63,15 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     except ValueError:
         output_dir_relative = str(output_dir.resolve())
     
+    # Build command using poetry run
+    # Use python -m poetry for better compatibility in Docker environments
+    # where Poetry might not be in PATH but is installed via pip
     cmd = [
-        python_cmd,
+        settings.PYTHON_EXECUTABLE,
+        "-m",
+        "poetry",
+        "run",
+        settings.PYTHON_EXECUTABLE,
         "main.py",
         "--input",
         input_path_relative,
