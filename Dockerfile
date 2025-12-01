@@ -24,14 +24,10 @@ RUN pip install --no-cache-dir "poetry==1.8.3" && \
     poetry install --no-root && \
     rm -rf /root/.cache/pypoetry
 
-# 6. Download and extract the model from your S3/Spaces into dental-pano-ai/models
-# You must pass MODEL_URL at build time:
-#   docker build --build-arg MODEL_URL=https://your-bucket/models.tar.gz ...
-ARG MODEL_URL
-RUN test -n "$MODEL_URL" || (echo "MODEL_URL build arg is required" && false) && \
-    cd /app/dental-pano-ai && \
+# 6. Download and extract the model from original S3 into dental-pano-ai/models
+RUN cd /app/dental-pano-ai && \
     mkdir -p models && \
-    wget -O /tmp/models.tar.gz "$MODEL_URL" && \
+    wget -O /tmp/models.tar.gz https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz && \
     tar -xzf /tmp/models.tar.gz -C /app/dental-pano-ai && \
     rm /tmp/models.tar.gz
 

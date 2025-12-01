@@ -45,20 +45,13 @@ POETRY_EXECUTABLE=poetry
 
 ## Docker Build
 
-Build the Docker image with the model URL:
+Build the Docker image (models are downloaded automatically from the original S3):
 
 ```bash
-docker build \
-  --build-arg MODEL_URL=https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz \
-  -t your-registry/dental-ai-service:latest .
+docker build -t your-registry/dental-ai-service:latest .
 ```
 
-Or use your own S3/Spaces URL:
-```bash
-docker build \
-  --build-arg MODEL_URL=https://your-bucket.s3.region.amazonaws.com/models.tar.gz \
-  -t your-registry/dental-ai-service:latest .
-```
+**Note:** The Dockerfile is configured to download models from: https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz
 
 ## Docker Run
 
