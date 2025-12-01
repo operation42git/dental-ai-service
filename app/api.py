@@ -114,26 +114,48 @@ async def analyze_ortopan(
     - **patient_name**: Optional patient identifier for logging
     - **debug**: If True, generates visualization images (semantic-segmentation.jpg and instance-detection.jpg)
     """
-    # Save uploaded file to disk
-    suffix = Path(file.filename).suffix or ".png"
-    file_id = uuid.uuid4().hex
-    input_path = settings.UPLOAD_DIR / f"{file_id}{suffix}"
-
-    with input_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    request_start_time = time.time()
+    logger.info(f"=== NEW REQUEST STARTED ===")
+    logger.info(f"File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}")
+    logger.info(f"Debug mode: {debug}, Patient: {patient_name}")
+    logger.info(f"S3 bucket: {s3_bucket}, Prefix: {s3_prefix}")
+    
     try:
+        # Save uploaded file to disk
+        logger.info("Saving uploaded file to disk...")
+        suffix = Path(file.filename).suffix or ".png"
+        file_id = uuid.uuid4().hex
+        input_path = settings.UPLOAD_DIR / f"{file_id}{suffix}"
+        logger.info(f"Input file path: {input_path}")
+
+        with input_path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        
+        file_size = input_path.stat().st_size
+        logger.info(f"File saved successfully, size: {file_size} bytes")
+
         logger.info(f"Starting inference for file: {file.filename}, debug={debug}")
-        logger.info(f"Models loaded: {MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)}")
+        models_loaded_status = MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
+        logger.info(f"Models loaded: {models_loaded_status}")
+        
+        if not models_loaded_status:
+            logger.warning("Models not loaded yet, this will trigger lazy loading (slower)")
         
         # Run inference in a thread pool to avoid blocking the event loop
         # AI inference can take several minutes, so we run it asynchronously
-        import time
-        start_time = time.time()
-        result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Inference completed in {elapsed_time:.2f} seconds")
+        logger.info("Starting inference in background thread...")
+        inference_start_time = time.time()
+        try:
+            result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
+            inference_elapsed = time.time() - inference_start_time
+            logger.info(f"Inference completed successfully in {inference_elapsed:.2f} seconds")
+        except Exception as inference_error:
+            inference_elapsed = time.time() - inference_start_time
+            logger.error(f"Inference failed after {inference_elapsed:.2f} seconds: {inference_error}")
+            logger.error(traceback.format_exc())
+            raise
         
+        logger.info("Normalizing S3 prefix...")
         # Normalize S3 prefix:
         # 1. Strip leading/trailing whitespace
         # 2. Remove spaces around slashes
@@ -149,14 +171,24 @@ async def analyze_ortopan(
         if s3_prefix_normalized and not s3_prefix_normalized.endswith('/'):
             s3_prefix_normalized += '/'
         
-        # Upload results to S3
-        s3_urls = upload_results_to_s3(
-            local_files=result["output_files"],
-            bucket_name=s3_bucket,
-            s3_prefix=s3_prefix_normalized,
-            output_dir=result["output_dir"],
-            region=os.getenv('AWS_REGION')
-        )
+        logger.info(f"Uploading {len(result['output_files'])} files to S3...")
+        logger.info(f"S3 prefix: {s3_prefix_normalized}")
+        upload_start_time = time.time()
+        try:
+            s3_urls = upload_results_to_s3(
+                local_files=result["output_files"],
+                bucket_name=s3_bucket,
+                s3_prefix=s3_prefix_normalized,
+                output_dir=result["output_dir"],
+                region=os.getenv('AWS_REGION')
+            )
+            upload_elapsed = time.time() - upload_start_time
+            logger.info(f"S3 upload completed in {upload_elapsed:.2f} seconds, uploaded {len(s3_urls)} files")
+        except Exception as upload_error:
+            upload_elapsed = time.time() - upload_start_time
+            logger.error(f"S3 upload failed after {upload_elapsed:.2f} seconds: {upload_error}")
+            logger.error(traceback.format_exc())
+            raise
         
         # Map relative file paths to S3 URLs for easier access
         # Preserves subdirectory structure (e.g., "image-name/semantic-segmentation.jpg")
@@ -182,9 +214,15 @@ async def analyze_ortopan(
         if patient_name:
             response["patient_name"] = patient_name
         
+        total_elapsed = time.time() - request_start_time
+        logger.info(f"=== REQUEST COMPLETED SUCCESSFULLY in {total_elapsed:.2f} seconds ===")
         return response
         
     except Exception as e:
+        total_elapsed = time.time() - request_start_time
+        logger.error(f"=== REQUEST FAILED after {total_elapsed:.2f} seconds ===")
+        logger.error(f"Error: {e}")
+        logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=500,
             content={"error": str(e)},
