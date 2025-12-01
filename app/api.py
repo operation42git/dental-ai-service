@@ -14,8 +14,17 @@ from .inference import run_dental_pano_ai
 from .config import settings
 from .s3_upload import upload_results_to_s3
 
-# Set up logging
+# Set up logging with immediate flushing
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # Override any existing config
+)
 logger = logging.getLogger(__name__)
+# Ensure logs are flushed immediately
+import sys
+sys.stdout.flush()
+sys.stderr.flush()
 
 # Import model_manager with error handling
 try:
@@ -28,6 +37,26 @@ except Exception as e:
     MODELS_AVAILABLE = False
 
 app = FastAPI(title="Dental AI Inference Service")
+
+
+# Add middleware to log all requests
+@app.middleware("http")
+async def log_requests(request, call_next):
+    import time
+    start_time = time.time()
+    print(f"[REQUEST] {request.method} {request.url.path} - Started", flush=True)
+    logger.info(f"Request: {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        print(f"[REQUEST] {request.method} {request.url.path} - Completed in {process_time:.2f}s - Status: {response.status_code}", flush=True)
+        logger.info(f"Request completed: {request.method} {request.url.path} - {process_time:.2f}s - {response.status_code}")
+        return response
+    except Exception as e:
+        process_time = time.time() - start_time
+        print(f"[REQUEST] {request.method} {request.url.path} - ERROR after {process_time:.2f}s: {e}", flush=True)
+        logger.error(f"Request error: {request.method} {request.url.path} - {process_time:.2f}s - {e}")
+        raise
 
 
 async def _load_models_background():
@@ -115,6 +144,10 @@ async def analyze_ortopan(
     - **debug**: If True, generates visualization images (semantic-segmentation.jpg and instance-detection.jpg)
     """
     request_start_time = time.time()
+    print(f"[ANALYZE] === NEW REQUEST STARTED ===", flush=True)
+    print(f"[ANALYZE] File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}", flush=True)
+    print(f"[ANALYZE] Debug: {debug}, Patient: {patient_name}", flush=True)
+    print(f"[ANALYZE] S3 bucket: {s3_bucket}, Prefix: {s3_prefix}", flush=True)
     logger.info(f"=== NEW REQUEST STARTED ===")
     logger.info(f"File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}")
     logger.info(f"Debug mode: {debug}, Patient: {patient_name}")
@@ -122,35 +155,44 @@ async def analyze_ortopan(
     
     try:
         # Save uploaded file to disk
+        print(f"[ANALYZE] Saving uploaded file to disk...", flush=True)
         logger.info("Saving uploaded file to disk...")
         suffix = Path(file.filename).suffix or ".png"
         file_id = uuid.uuid4().hex
         input_path = settings.UPLOAD_DIR / f"{file_id}{suffix}"
+        print(f"[ANALYZE] Input file path: {input_path}", flush=True)
         logger.info(f"Input file path: {input_path}")
 
         with input_path.open("wb") as f:
             shutil.copyfileobj(file.file, f)
         
         file_size = input_path.stat().st_size
+        print(f"[ANALYZE] File saved successfully, size: {file_size} bytes", flush=True)
         logger.info(f"File saved successfully, size: {file_size} bytes")
 
-        logger.info(f"Starting inference for file: {file.filename}, debug={debug}")
+        print(f"[ANALYZE] Starting inference for file: {file.filename}, debug={debug}", flush=True)
         models_loaded_status = MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
+        print(f"[ANALYZE] Models loaded: {models_loaded_status}", flush=True)
+        logger.info(f"Starting inference for file: {file.filename}, debug={debug}")
         logger.info(f"Models loaded: {models_loaded_status}")
         
         if not models_loaded_status:
+            print(f"[ANALYZE] WARNING: Models not loaded yet, this will trigger lazy loading (slower)", flush=True)
             logger.warning("Models not loaded yet, this will trigger lazy loading (slower)")
         
         # Run inference in a thread pool to avoid blocking the event loop
         # AI inference can take several minutes, so we run it asynchronously
+        print(f"[ANALYZE] Starting inference in background thread...", flush=True)
         logger.info("Starting inference in background thread...")
         inference_start_time = time.time()
         try:
             result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
             inference_elapsed = time.time() - inference_start_time
+            print(f"[ANALYZE] Inference completed successfully in {inference_elapsed:.2f} seconds", flush=True)
             logger.info(f"Inference completed successfully in {inference_elapsed:.2f} seconds")
         except Exception as inference_error:
             inference_elapsed = time.time() - inference_start_time
+            print(f"[ANALYZE] ERROR: Inference failed after {inference_elapsed:.2f} seconds: {inference_error}", flush=True)
             logger.error(f"Inference failed after {inference_elapsed:.2f} seconds: {inference_error}")
             logger.error(traceback.format_exc())
             raise

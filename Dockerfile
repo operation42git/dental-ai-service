@@ -42,4 +42,4 @@ RUN mkdir -p /app/uploads
 # 9. Expose port and run the API
 EXPOSE 8000
 
-CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info", "--no-access-log"]
