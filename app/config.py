@@ -2,10 +2,23 @@
 import os
 from pathlib import Path
 
-# Load .env file if it exists
+# Load .env file if it exists (from project root)
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Try multiple locations: project root (parent of app directory) and current working directory
+    project_root = Path(__file__).parent.parent
+    env_paths = [
+        project_root / '.env',  # Project root
+        Path.cwd() / '.env',    # Current working directory
+        Path('.env'),           # Relative to CWD
+    ]
+    for env_path in env_paths:
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=True)
+            break
+    else:
+        # If no .env found, try default behavior (searches upward from CWD)
+        load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed, that's okay
 

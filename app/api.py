@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import uuid
 import os
+import re
 
 from .inference import run_dental_pano_ai
 from .config import settings
@@ -52,8 +53,20 @@ async def analyze_ortopan(
         # Run inference
         result = run_dental_pano_ai(str(input_path), debug=debug)
         
-        # Normalize S3 prefix (ensure it ends with /)
-        s3_prefix_normalized = s3_prefix.rstrip('/') + '/'
+        # Normalize S3 prefix:
+        # 1. Strip leading/trailing whitespace
+        # 2. Remove spaces around slashes
+        # 3. Normalize multiple slashes to single slash
+        # 4. Ensure it ends with /
+        s3_prefix_normalized = s3_prefix.strip()
+        # Remove spaces around slashes and normalize slashes
+        s3_prefix_normalized = re.sub(r'\s*/\s*', '/', s3_prefix_normalized)  # Remove spaces around /
+        s3_prefix_normalized = re.sub(r'/+', '/', s3_prefix_normalized)  # Normalize multiple / to single /
+        # Remove leading slash if present (we'll add it at the end)
+        s3_prefix_normalized = s3_prefix_normalized.lstrip('/')
+        # Ensure it ends with /
+        if s3_prefix_normalized and not s3_prefix_normalized.endswith('/'):
+            s3_prefix_normalized += '/'
         
         # Upload results to S3
         s3_urls = upload_results_to_s3(

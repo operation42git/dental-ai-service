@@ -23,3 +23,24 @@ models/
 # Environment / secrets
 .env
 *.env
+
+# Application data directories
+uploads/
+dental-pano-ai/uploads/
+dental-pano-ai/results/
+results/
+
+# Cloned repository (cloned during Docker build, not needed in git)
+dental-pano-ai/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# AWS credentials (if accidentally committed)
+.aws/
+*.pem
