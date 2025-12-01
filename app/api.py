@@ -10,14 +10,22 @@ import asyncio
 from .inference import run_dental_pano_ai
 from .config import settings
 from .s3_upload import upload_results_to_s3
+from .models import model_manager
 
 app = FastAPI(title="Dental AI Inference Service")
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Validate configuration on startup."""
+    """Validate configuration and load AI models on startup."""
     settings.validate()
+    
+    # Load models into memory once at startup
+    # This is much faster than loading on each request
+    # We load with debug=True so visualization images work when requested
+    print("Loading AI models into memory...")
+    model_manager.load_models(debug=True)
+    print("AI models loaded successfully!")
 
 
 @app.get("/health")

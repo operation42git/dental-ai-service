@@ -1,18 +1,26 @@
-import subprocess
 import os
 from pathlib import Path
 import uuid
+import numpy as np
+from PIL import Image
 
 from .config import settings
+from .models import model_manager, FindingAssessment
 
 
 def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
     """
-    Run the original dental-pano-ai/main.py script on a single image.
+    Run dental-pano-ai inference on a single image using pre-loaded models.
+    
+    This function uses models that were loaded at application startup,
+    avoiding the overhead of loading models on each request. This makes
+    inference much faster (typically 10-100x faster) since models are
+    already in memory.
 
     Args:
         input_image_path: Path to the input image file
-        debug: If True, enables debug mode to generate visualization images
+        debug: If True, generates visualization images (semantic-segmentation.jpg
+               and instance-detection.jpg) in the output directory
 
     Returns:
         {
@@ -21,115 +29,57 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
         }
     """
     input_path = Path(input_image_path)
-    # Convert to absolute path to ensure the script can find it when running from dental-pano-ai directory
     input_path = input_path.resolve()
     if not input_path.exists():
         raise FileNotFoundError(f"Input image not found: {input_path}")
 
-    if not settings.MODELS_DIR.exists():
+    if not model_manager.is_loaded():
         raise RuntimeError(
-            f"Models directory not found at {settings.MODELS_DIR}. "
-            "Make sure models.tar.gz was downloaded and extracted."
+            "Models are not loaded. Make sure the application started successfully."
         )
 
     # Unique output directory per request
     out_id = uuid.uuid4().hex
     output_dir = settings.RESULTS_DIR / out_id
-    output_dir = output_dir.resolve()  # Convert to absolute path
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build the command.
-    # Use 'poetry run' to ensure the script runs with Poetry's virtual environment
-    # which has all the dependencies installed (absl-py, torch, etc.)
-    # This works reliably in both local and Docker environments.
-    # main.py supports --input and --output; models default to ./models/* per README.
-    # We rely on those defaults by setting cwd=REPO_DIR.
-    # Convert paths to relative paths from REPO_DIR to avoid Windows absolute path issues.
-    # The script's path handling for absolute paths only works on Unix-like systems.
-    repo_dir_resolved = settings.DENTAL_PANO_AI_REPO_DIR.resolve()
-    
-    # Calculate relative path from REPO_DIR to input file
-    try:
-        input_path_relative = os.path.relpath(str(input_path.resolve()), str(repo_dir_resolved))
-    except ValueError:
-        # If paths are on different drives (Windows), we can't make them relative
-        # In this case, we'll need to copy the file or use a workaround
-        # For now, try using the path as-is but this may fail
-        input_path_relative = str(input_path.resolve())
-    
-    # Calculate relative path from REPO_DIR to output directory
-    try:
-        output_dir_relative = os.path.relpath(str(output_dir.resolve()), str(repo_dir_resolved))
-    except ValueError:
-        output_dir_relative = str(output_dir.resolve())
-    
-    # Build command - use system Python directly
-    # Dependencies are installed into system Python during Docker build
-    # (Poetry is configured with virtualenvs.create=false)
-    cmd = [
-        settings.PYTHON_EXECUTABLE,
-        "main.py",
-        "--input",
-        input_path_relative,
-        "--output",
-        output_dir_relative,
-    ]
-    
-    # Add --debug flag if requested
-    if debug:
-        cmd.append("--debug")
+    # Get the pre-loaded modules
+    # Models are loaded with debug=True at startup, so visualization will work
+    semseg_module, insdet_module, postproc_module = model_manager.get_modules(debug=debug)
 
-    # Run the script in the repo directory so relative paths (./models, ./data, etc.) work.
-    # Set a timeout of 15 minutes (900 seconds) for AI inference, which can be slow
-    try:
-        completed = subprocess.run(
-            cmd,
-            cwd=str(settings.DENTAL_PANO_AI_REPO_DIR),
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=900,  # 15 minutes timeout
-        )
-    except subprocess.TimeoutExpired as e:
-        error_msg = f"Inference timed out after 15 minutes.\n"
-        error_msg += f"Command: {' '.join(cmd)}\n"
-        error_msg += f"Working directory: {settings.DENTAL_PANO_AI_REPO_DIR}\n"
-        if e.stdout:
-            error_msg += f"STDOUT (partial):\n{e.stdout}\n"
-        if e.stderr:
-            error_msg += f"STDERR (partial):\n{e.stderr}\n"
-        raise RuntimeError(error_msg) from e
-    except subprocess.CalledProcessError as e:
-        error_msg = f"Command failed with exit code {e.returncode}\n"
-        error_msg += f"Command: {' '.join(cmd)}\n"
-        error_msg += f"Working directory: {settings.DENTAL_PANO_AI_REPO_DIR}\n"
-        if e.stdout:
-            error_msg += f"STDOUT:\n{e.stdout}\n"
-        if e.stderr:
-            error_msg += f"STDERR:\n{e.stderr}\n"
-        raise RuntimeError(error_msg) from e
+    # Load and process the image
+    image_pil = Image.open(input_path).convert("RGB")
+    image = np.asarray(image_pil)
 
-    # You can log completed.stdout / completed.stderr if needed
-    # print("STDOUT:", completed.stdout)
-    # print("STDERR:", completed.stderr)
+    # Create subdirectory for this image (matching original behavior)
+    image_output_dir = output_dir / input_path.stem
+    image_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Run inference
+    semseg_pred = semseg_module(image, output_dir=image_output_dir)
+    insdet_pred = insdet_module(image, output_dir=image_output_dir)
+    finding_entries = postproc_module(semseg_pred, insdet_pred)
+
+    # Generate CSV output
+    csv_path = output_dir / f"{input_path.stem}.csv"
+    assessment = FindingAssessment(
+        name=input_path.stem,
+        entries=finding_entries
+    )
+    assessment.to_csv(csv_path)
 
     # Collect output files (including files in subdirectories for debug images)
     output_files = []
-    for p in output_dir.rglob("*"):  # Use rglob to search recursively
+    for p in output_dir.rglob("*"):
         if p.is_file():
             output_files.append(str(p))
 
     if not output_files:
-        error_msg = f"No output files produced in {output_dir}.\n"
-        error_msg += f"Command: {' '.join(cmd)}\n"
-        error_msg += f"Working directory: {settings.DENTAL_PANO_AI_REPO_DIR}\n"
-        error_msg += f"Input file: {input_path}\n"
-        error_msg += f"Output directory: {output_dir}\n"
-        if completed.stdout:
-            error_msg += f"STDOUT:\n{completed.stdout}\n"
-        if completed.stderr:
-            error_msg += f"STDERR:\n{completed.stderr}\n"
-        raise RuntimeError(error_msg)
+        raise RuntimeError(
+            f"No output files produced in {output_dir}. "
+            f"Expected at least a CSV file at {csv_path}."
+        )
 
     return {
         "output_dir": str(output_dir),
