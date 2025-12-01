@@ -5,6 +5,7 @@ import shutil
 import uuid
 import os
 import re
+import asyncio
 
 from .inference import run_dental_pano_ai
 from .config import settings
@@ -50,8 +51,9 @@ async def analyze_ortopan(
         shutil.copyfileobj(file.file, f)
 
     try:
-        # Run inference
-        result = run_dental_pano_ai(str(input_path), debug=debug)
+        # Run inference in a thread pool to avoid blocking the event loop
+        # AI inference can take several minutes, so we run it asynchronously
+        result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
         
         # Normalize S3 prefix:
         # 1. Strip leading/trailing whitespace

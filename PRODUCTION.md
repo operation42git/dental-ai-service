@@ -157,7 +157,47 @@ curl -X POST "http://your-server:8000/analyze-ortopan?s3_bucket=https://kisdenta
 5. **Rate limiting** - Consider adding rate limiting for production use
 6. **Monitoring** - Set up logging and monitoring for the service
 
+## DigitalOcean App Platform Configuration
+
+### Timeout Settings
+
+**IMPORTANT:** AI inference can take 5-15 minutes per image. You **must** configure DigitalOcean App Platform to allow long-running requests:
+
+1. **In DigitalOcean App Platform Dashboard:**
+   - Go to your app → Settings → App Spec
+   - Find your service component
+   - Add or update the `http_port` configuration with timeout settings
+
+2. **Recommended App Spec Configuration:**
+   ```yaml
+   name: dental-ai-service
+   services:
+   - name: api
+     http_port: 8000
+     health_check:
+       http_path: /health
+     timeout_seconds: 900  # 15 minutes
+     instance_count: 1
+     instance_size_slug: basic-xxs  # Adjust based on your needs
+   ```
+
+3. **Alternative: Via Environment Variables:**
+   - Some platforms allow setting `UVICORN_TIMEOUT_KEEP_ALIVE` or similar
+   - Check DigitalOcean documentation for timeout configuration options
+
+4. **If timeouts persist:**
+   - Consider using a job queue (e.g., Celery, RQ) for long-running inference tasks
+   - Implement a polling endpoint to check job status
+   - Or use DigitalOcean's background worker component type
+
 ## Troubleshooting
+
+### 504 Gateway Timeout
+- **Cause:** Request exceeded platform timeout (usually 60-300 seconds default)
+- **Solution:** 
+  - Configure timeout settings in DigitalOcean App Platform (see above)
+  - Inference typically takes 5-15 minutes, so timeout must be at least 900 seconds (15 minutes)
+  - Check application logs to see if inference is actually running or if it's failing early
 
 ### Credentials not found
 - Verify environment variables are set correctly

@@ -80,6 +80,7 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
         cmd.append("--debug")
 
     # Run the script in the repo directory so relative paths (./models, ./data, etc.) work.
+    # Set a timeout of 15 minutes (900 seconds) for AI inference, which can be slow
     try:
         completed = subprocess.run(
             cmd,
@@ -87,7 +88,17 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
             check=True,
             capture_output=True,
             text=True,
+            timeout=900,  # 15 minutes timeout
         )
+    except subprocess.TimeoutExpired as e:
+        error_msg = f"Inference timed out after 15 minutes.\n"
+        error_msg += f"Command: {' '.join(cmd)}\n"
+        error_msg += f"Working directory: {settings.DENTAL_PANO_AI_REPO_DIR}\n"
+        if e.stdout:
+            error_msg += f"STDOUT (partial):\n{e.stdout}\n"
+        if e.stderr:
+            error_msg += f"STDERR (partial):\n{e.stderr}\n"
+        raise RuntimeError(error_msg) from e
     except subprocess.CalledProcessError as e:
         error_msg = f"Command failed with exit code {e.returncode}\n"
         error_msg += f"Command: {' '.join(cmd)}\n"
