@@ -16,11 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Clone the dental-pano-ai repo
 RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
 
-# 5. Install its dependencies via Poetry or pip
-# The README uses Poetry, but installing via pip from pyproject is usually fine.
-# If needed, you can switch to Poetry-based install here.
+# 5. Install its dependencies via Poetry
+# Configure Poetry to install into system Python (no virtualenv) for Docker
+# This ensures dependencies are available when using 'poetry run' at runtime
 RUN pip install --no-cache-dir "poetry==1.8.3" && \
     cd /app/dental-pano-ai && \
+    poetry config virtualenvs.create false && \
     poetry install --no-root && \
     rm -rf /root/.cache/pypoetry
 
