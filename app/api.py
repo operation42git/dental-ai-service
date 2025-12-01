@@ -29,30 +29,38 @@ except Exception as e:
 app = FastAPI(title="Dental AI Inference Service")
 
 
+async def _load_models_background():
+    """Load models in the background (non-blocking)."""
+    if not MODELS_AVAILABLE or not model_manager:
+        logger.error("Model manager not available. Models will be loaded on first request (slower).")
+        return
+    
+    logger.info("Starting background model loading...")
+    try:
+        # Run model loading in a thread pool since it's CPU/memory intensive
+        # This prevents blocking the event loop
+        await asyncio.to_thread(model_manager.load_models, debug=True)
+        logger.info("AI models loaded successfully in background!")
+    except Exception as e:
+        logger.error(f"Failed to load models in background: {e}")
+        logger.error(traceback.format_exc())
+        logger.warning("Models will be loaded on first request (slower)")
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Validate configuration and load AI models on startup."""
+    """Validate configuration and start background model loading."""
     try:
         logger.info("Starting application startup...")
         settings.validate()
         logger.info("Configuration validated successfully")
         
-        if not MODELS_AVAILABLE:
-            logger.error("Model manager not available. Models will be loaded on first request (slower).")
-            return
+        # Start model loading in the background (non-blocking)
+        # This allows the app to start immediately and pass health checks
+        # Models will be ready when the first request comes in (or shortly after)
+        asyncio.create_task(_load_models_background())
+        logger.info("Application startup complete. Models loading in background...")
         
-        # Load models into memory once at startup
-        # This is much faster than loading on each request
-        # We load with debug=True so visualization images work when requested
-        logger.info("Loading AI models into memory...")
-        try:
-            model_manager.load_models(debug=True)
-            logger.info("AI models loaded successfully!")
-        except Exception as e:
-            logger.error(f"Failed to load models at startup: {e}")
-            logger.error(traceback.format_exc())
-            logger.warning("Models will be loaded on first request (slower)")
-            # Don't fail startup - allow lazy loading
     except Exception as e:
         logger.error(f"Startup failed: {e}")
         logger.error(traceback.format_exc())
@@ -62,10 +70,18 @@ async def startup_event():
 
 @app.get("/health")
 def health():
-    """Health check endpoint."""
+    """
+    Health check endpoint.
+    Returns immediately - models may still be loading in background.
+    """
+    models_loaded = False
+    if MODELS_AVAILABLE and model_manager:
+        models_loaded = model_manager.is_loaded()
+    
     status = {
         "status": "ok",
-        "models_loaded": MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
+        "models_loaded": models_loaded,
+        "models_available": MODELS_AVAILABLE,
     }
     return status
 
