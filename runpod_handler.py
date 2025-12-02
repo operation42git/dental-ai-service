@@ -253,16 +253,17 @@ def handler(event):
                 logger.info(f"Uploaded {len(debug_image_urls)} debug images")
             
             # Prepare output with S3 URLs
+            # Convert NumPy types to Python types for JSON serialization
             output = {
                 "findings": [
                     {
-                        "fdi": entry.fdi,
-                        "finding": entry.finding.value,
-                        "score": entry.score
+                        "fdi": str(entry.fdi),
+                        "finding": str(entry.finding.value),
+                        "score": float(entry.score)  # Convert numpy.float32 to Python float
                     }
                     for entry in finding_entries
                 ],
-                "num_findings": len(finding_entries),
+                "num_findings": int(len(finding_entries)),
                 "csv_url": csv_url,
                 "s3_bucket": bucket_name,
                 "s3_prefix": s3_prefix
@@ -281,14 +282,14 @@ def handler(event):
             output = {
                 "findings": [
                     {
-                        "fdi": entry.fdi,
-                        "finding": entry.finding.value,
-                        "score": entry.score
+                        "fdi": str(entry.fdi),
+                        "finding": str(entry.finding.value),
+                        "score": float(entry.score)  # Convert numpy.float32 to Python float
                     }
                     for entry in finding_entries
                 ],
                 "csv_data": csv_data,
-                "num_findings": len(finding_entries)
+                "num_findings": int(len(finding_entries))
             }
         
         # Clean up temp files
