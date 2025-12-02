@@ -154,40 +154,142 @@ def handler(event):
         logger.info(f"Post-processing completed: {len(finding_entries)} findings")
         
         # Generate CSV
+        logger.info("Generating CSV...")
         csv_path = output_dir / "findings.csv"
         assessment = FindingAssessment(
             name=Path(tmp_path).stem,
             entries=finding_entries
         )
         assessment.to_csv(csv_path)
+        logger.info(f"CSV generated: {csv_path}")
         
-        # Read CSV content
-        with open(csv_path, 'r') as f:
-            csv_data = f.read()
-        
-        # Prepare output
-        output = {
-            "findings": [
-                {
-                    "fdi": entry.fdi,
-                    "finding": entry.finding.value,
-                    "score": entry.score
+        # Upload results to S3 if bucket is provided
+        if s3_bucket and s3_prefix:
+            logger.info(f"Uploading results to S3: {s3_bucket}/{s3_prefix}")
+            import boto3
+            import re
+            
+            # Parse bucket and endpoint from URL if needed
+            bucket_name = s3_bucket
+            endpoint_url = None
+            
+            # Check if it's a DigitalOcean Spaces URL
+            do_spaces_match = re.match(r'https?://([^.]+)\.([^.]+)\.digitaloceanspaces\.com', s3_bucket)
+            if do_spaces_match:
+                bucket_name = do_spaces_match.group(1)
+                region = do_spaces_match.group(2)
+                endpoint_url = f"https://{region}.digitaloceanspaces.com"
+            else:
+                region = os.getenv('AWS_REGION', 'us-east-1')
+            
+            # Get credentials from environment
+            aws_access_key = os.getenv('AWS_ACCESS_KEY_ID') or os.getenv('DO_SPACES_ACCESS_KEY')
+            aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY') or os.getenv('DO_SPACES_SECRET_KEY')
+            
+            if not aws_access_key or not aws_secret_key:
+                logger.warning("S3 credentials not found, skipping upload")
+                # Return findings without S3 URLs
+                return {
+                    "findings": [
+                        {
+                            "fdi": entry.fdi,
+                            "finding": entry.finding.value,
+                            "score": entry.score
+                        }
+                        for entry in finding_entries
+                    ],
+                    "num_findings": len(finding_entries),
+                    "warning": "S3 credentials not provided, results not uploaded"
                 }
-                for entry in finding_entries
-            ],
-            "csv_data": csv_data,
-            "num_findings": len(finding_entries)
-        }
-        
-        # Include debug images if requested
-        if debug:
-            debug_images = {}
-            for img_file in image_output_dir.glob("*.jpg"):
-                # In production, you'd upload these to S3 and return URLs
-                # For now, just note they exist
-                debug_images[img_file.name] = f"s3://{s3_bucket}/{s3_prefix}debug/{img_file.name}"
-            output["debug_images"] = debug_images
-            logger.info(f"Debug images: {list(debug_images.keys())}")
+            
+            # Create S3 client
+            s3_client = boto3.client(
+                's3',
+                region_name=region,
+                endpoint_url=endpoint_url if endpoint_url else None,
+                aws_access_key_id=aws_access_key,
+                aws_secret_access_key=aws_secret_key
+            )
+            
+            # Upload CSV
+            csv_s3_key = f"{s3_prefix}{csv_path.name}"
+            logger.info(f"Uploading CSV to {csv_s3_key}")
+            s3_client.upload_file(
+                str(csv_path),
+                bucket_name,
+                csv_s3_key,
+                ExtraArgs={'ACL': 'public-read'}
+            )
+            
+            # Generate CSV URL
+            if endpoint_url:
+                csv_url = f"{endpoint_url}/{bucket_name}/{csv_s3_key}"
+            else:
+                csv_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{csv_s3_key}"
+            
+            logger.info(f"CSV uploaded: {csv_url}")
+            
+            # Upload debug images if requested
+            debug_image_urls = {}
+            if debug:
+                logger.info("Uploading debug images...")
+                for img_file in image_output_dir.glob("*.jpg"):
+                    img_s3_key = f"{s3_prefix}{img_file.stem}/{img_file.name}"
+                    logger.info(f"Uploading {img_file.name} to {img_s3_key}")
+                    s3_client.upload_file(
+                        str(img_file),
+                        bucket_name,
+                        img_s3_key,
+                        ExtraArgs={'ACL': 'public-read'}
+                    )
+                    
+                    if endpoint_url:
+                        img_url = f"{endpoint_url}/{bucket_name}/{img_s3_key}"
+                    else:
+                        img_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{img_s3_key}"
+                    
+                    debug_image_urls[img_file.name] = img_url
+                
+                logger.info(f"Uploaded {len(debug_image_urls)} debug images")
+            
+            # Prepare output with S3 URLs
+            output = {
+                "findings": [
+                    {
+                        "fdi": entry.fdi,
+                        "finding": entry.finding.value,
+                        "score": entry.score
+                    }
+                    for entry in finding_entries
+                ],
+                "num_findings": len(finding_entries),
+                "csv_url": csv_url,
+                "s3_bucket": bucket_name,
+                "s3_prefix": s3_prefix
+            }
+            
+            if debug_image_urls:
+                output["debug_images"] = debug_image_urls
+            
+            logger.info("Results uploaded to S3 successfully!")
+        else:
+            # No S3 bucket provided, return data directly
+            logger.info("No S3 bucket provided, returning data directly")
+            with open(csv_path, 'r') as f:
+                csv_data = f.read()
+            
+            output = {
+                "findings": [
+                    {
+                        "fdi": entry.fdi,
+                        "finding": entry.finding.value,
+                        "score": entry.score
+                    }
+                    for entry in finding_entries
+                ],
+                "csv_data": csv_data,
+                "num_findings": len(finding_entries)
+            }
         
         # Clean up temp files
         try:
@@ -195,7 +297,7 @@ def handler(event):
         except:
             pass
         
-        logger.info("Inference completed successfully!")
+        logger.info("Handler completed successfully!")
         return output
         
     except Exception as e:

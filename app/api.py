@@ -215,14 +215,16 @@ async def analyze_ortopan(
             total_elapsed = time.time() - request_start_time
             logger.info(f"=== REQUEST COMPLETED in {total_elapsed:.2f}s ===")
             
+            # RunPod now uploads directly to S3 and returns URLs
             response = {
                 "message": "analysis complete",
                 "job_id": job_id,
-                "s3_bucket": s3_bucket,
-                "s3_prefix": s3_prefix_normalized,
+                "s3_bucket": output.get("s3_bucket", s3_bucket),
+                "s3_prefix": output.get("s3_prefix", s3_prefix_normalized),
                 "findings": output.get("findings", []),
-                "csv_data": output.get("csv_data"),
-                "debug_images": output.get("debug_images", {}),
+                "num_findings": output.get("num_findings", 0),
+                "csv_url": output.get("csv_url"),  # S3 URL to CSV file
+                "debug_images": output.get("debug_images", {}),  # Dict of filename -> S3 URL
                 "elapsed_time": total_elapsed
             }
             
