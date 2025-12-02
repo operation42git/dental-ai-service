@@ -67,6 +67,65 @@ def _parse_bucket_and_endpoint(bucket_input: str, region: Optional[str] = None) 
         return bucket_name, None, aws_region
 
 
+def upload_file_to_s3(
+    local_file: str,
+    bucket_name: str,
+    s3_key: str,
+    region: Optional[str] = None
+) -> str:
+    """
+    Upload a single file to S3 and return its public URL.
+    
+    Args:
+        local_file: Path to the local file
+        bucket_name: S3 bucket name or full URL
+        s3_key: S3 key (path) for the file
+        region: Optional region
+    
+    Returns:
+        Public URL of the uploaded file
+    """
+    bucket, endpoint_url, detected_region = _parse_bucket_and_endpoint(bucket_name, region)
+    region = region or detected_region or os.getenv('AWS_REGION', 'us-east-1')
+    
+    # Get credentials
+    aws_access_key = os.getenv('AWS_ACCESS_KEY_ID') or os.getenv('DO_SPACES_ACCESS_KEY')
+    aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY') or os.getenv('DO_SPACES_SECRET_KEY')
+    
+    if not aws_access_key or not aws_secret_key:
+        raise ValueError(
+            "S3/Spaces credentials not found. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY "
+            "(or DO_SPACES_ACCESS_KEY and DO_SPACES_SECRET_KEY) environment variables."
+        )
+    
+    # Create S3 client
+    s3_client = boto3.client(
+        's3',
+        region_name=region,
+        endpoint_url=endpoint_url if endpoint_url else None,
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key
+    )
+    
+    # Upload file
+    s3_client.upload_file(
+        local_file,
+        bucket,
+        s3_key,
+        ExtraArgs={'ACL': 'public-read'}
+    )
+    
+    # Generate public URL
+    if endpoint_url:
+        # DigitalOcean Spaces or custom endpoint
+        public_url = f"{endpoint_url}/{bucket}/{s3_key}"
+    else:
+        # AWS S3
+        public_url = f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
+    
+    return public_url
+
+
 def upload_results_to_s3(
     local_files: List[str],
     bucket_name: str,

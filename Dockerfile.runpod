@@ -1,0 +1,42 @@
+# Dockerfile for RunPod serverless deployment
+# This creates a GPU-enabled container for fast inference
+
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Clone dental-pano-ai repository
+RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
+
+# Install dental-pano-ai dependencies
+RUN pip install --no-cache-dir "poetry==1.8.3" && \
+    cd /app/dental-pano-ai && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-root && \
+    rm -rf /root/.cache/pypoetry
+
+# Install RunPod SDK and other dependencies
+RUN pip install --no-cache-dir runpod requests pillow
+
+# Download and extract models
+RUN cd /app/dental-pano-ai && \
+    mkdir -p models && \
+    wget -O /tmp/models.tar.gz https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz && \
+    tar -xzf /tmp/models.tar.gz -C /app/dental-pano-ai && \
+    rm /tmp/models.tar.gz
+
+# Copy the handler
+COPY runpod_handler.py /app/handler.py
+
+# Set environment variable
+ENV DENTAL_PANO_AI_DIR=/app/dental-pano-ai
+
+# Run the handler
+CMD ["python", "-u", "/app/handler.py"]
+

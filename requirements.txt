@@ -4,3 +4,4 @@ python-dotenv
 python-multipart
 boto3
 psutil
+requests

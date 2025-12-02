@@ -132,138 +132,150 @@ async def analyze_ortopan(
     s3_bucket: str = Query(..., description="S3 bucket name for storing results"),
     s3_prefix: str = Query(..., description="Full S3 folder path (e.g., 'patients/john-doe/2024-01-15/')"),
     patient_name: str = Query(None, description="Optional patient name for logging"),
-    debug: bool = Query(default=False, description="Enable debug mode to generate visualization images")
+    debug: bool = Query(default=False, description="Enable debug mode to generate visualization images"),
+    wait_for_result: bool = Query(default=False, description="Wait for result or return job ID immediately")
 ):
     """
-    Accept a DPR/ortopan image upload and run the dental-pano-ai inference.
-    Results are uploaded to the specified S3 prefix and S3 URLs are returned.
+    Submit dental image for AI analysis via RunPod serverless.
     
     - **s3_bucket**: S3 bucket name where results will be stored (required)
     - **s3_prefix**: Full S3 folder path where files will be uploaded (required)
     - **patient_name**: Optional patient identifier for logging
     - **debug**: If True, generates visualization images (semantic-segmentation.jpg and instance-detection.jpg)
+    - **wait_for_result**: If False (default), returns job ID immediately (~100ms). If True, waits for completion (~15-30s)
+    
+    ## Response Modes:
+    
+    ### Fast mode (wait_for_result=false):
+    Returns job ID immediately. Client polls `/job-status/{job_id}` for results.
+    Response time: ~100-200ms
+    
+    ### Sync mode (wait_for_result=true):
+    Waits for inference to complete and returns results.
+    Response time: ~15-30s (much faster than local inference)
     """
     request_start_time = time.time()
-    print(f"[ANALYZE] === NEW REQUEST STARTED ===", flush=True)
-    print(f"[ANALYZE] File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}", flush=True)
-    print(f"[ANALYZE] Debug: {debug}, Patient: {patient_name}", flush=True)
-    print(f"[ANALYZE] S3 bucket: {s3_bucket}, Prefix: {s3_prefix}", flush=True)
     logger.info(f"=== NEW REQUEST STARTED ===")
-    logger.info(f"File: {file.filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}")
-    logger.info(f"Debug mode: {debug}, Patient: {patient_name}")
-    logger.info(f"S3 bucket: {s3_bucket}, Prefix: {s3_prefix}")
+    logger.info(f"File: {file.filename}, Patient: {patient_name}, Debug: {debug}, Wait: {wait_for_result}")
     
     try:
-        # Save uploaded file to disk
-        print(f"[ANALYZE] Saving uploaded file to disk...", flush=True)
-        logger.info("Saving uploaded file to disk...")
+        # Save uploaded file
         suffix = Path(file.filename).suffix or ".png"
         file_id = uuid.uuid4().hex
         input_path = settings.UPLOAD_DIR / f"{file_id}{suffix}"
-        print(f"[ANALYZE] Input file path: {input_path}", flush=True)
-        logger.info(f"Input file path: {input_path}")
-
+        
         with input_path.open("wb") as f:
             shutil.copyfileobj(file.file, f)
         
-        file_size = input_path.stat().st_size
-        print(f"[ANALYZE] File saved successfully, size: {file_size} bytes", flush=True)
-        logger.info(f"File saved successfully, size: {file_size} bytes")
-
-        print(f"[ANALYZE] Starting inference for file: {file.filename}, debug={debug}", flush=True)
-        models_loaded_status = MODELS_AVAILABLE and (model_manager.is_loaded() if model_manager else False)
-        print(f"[ANALYZE] Models loaded: {models_loaded_status}", flush=True)
-        logger.info(f"Starting inference for file: {file.filename}, debug={debug}")
-        logger.info(f"Models loaded: {models_loaded_status}")
+        logger.info(f"File saved: {input_path}")
         
-        if not models_loaded_status:
-            print(f"[ANALYZE] WARNING: Models not loaded yet, this will trigger lazy loading (slower)", flush=True)
-            logger.warning("Models not loaded yet, this will trigger lazy loading (slower)")
-        
-        # Run inference in a thread pool to avoid blocking the event loop
-        # AI inference can take several minutes, so we run it asynchronously
-        print(f"[ANALYZE] Starting inference in background thread...", flush=True)
-        logger.info("Starting inference in background thread...")
-        inference_start_time = time.time()
-        try:
-            result = await asyncio.to_thread(run_dental_pano_ai, str(input_path), debug)
-            inference_elapsed = time.time() - inference_start_time
-            print(f"[ANALYZE] Inference completed successfully in {inference_elapsed:.2f} seconds", flush=True)
-            logger.info(f"Inference completed successfully in {inference_elapsed:.2f} seconds")
-        except Exception as inference_error:
-            inference_elapsed = time.time() - inference_start_time
-            print(f"[ANALYZE] ERROR: Inference failed after {inference_elapsed:.2f} seconds: {inference_error}", flush=True)
-            logger.error(f"Inference failed after {inference_elapsed:.2f} seconds: {inference_error}")
-            logger.error(traceback.format_exc())
-            raise
-        
-        logger.info("Normalizing S3 prefix...")
-        # Normalize S3 prefix:
-        # 1. Strip leading/trailing whitespace
-        # 2. Remove spaces around slashes
-        # 3. Normalize multiple slashes to single slash
-        # 4. Ensure it ends with /
+        # Normalize S3 prefix
         s3_prefix_normalized = s3_prefix.strip()
-        # Remove spaces around slashes and normalize slashes
-        s3_prefix_normalized = re.sub(r'\s*/\s*', '/', s3_prefix_normalized)  # Remove spaces around /
-        s3_prefix_normalized = re.sub(r'/+', '/', s3_prefix_normalized)  # Normalize multiple / to single /
-        # Remove leading slash if present (we'll add it at the end)
+        s3_prefix_normalized = re.sub(r'\s*/\s*', '/', s3_prefix_normalized)
+        s3_prefix_normalized = re.sub(r'/+', '/', s3_prefix_normalized)
         s3_prefix_normalized = s3_prefix_normalized.lstrip('/')
-        # Ensure it ends with /
         if s3_prefix_normalized and not s3_prefix_normalized.endswith('/'):
             s3_prefix_normalized += '/'
         
-        logger.info(f"Uploading {len(result['output_files'])} files to S3...")
-        logger.info(f"S3 prefix: {s3_prefix_normalized}")
-        upload_start_time = time.time()
-        try:
-            s3_urls = upload_results_to_s3(
-                local_files=result["output_files"],
-                bucket_name=s3_bucket,
-                s3_prefix=s3_prefix_normalized,
-                output_dir=result["output_dir"],
-                region=os.getenv('AWS_REGION')
-            )
-            upload_elapsed = time.time() - upload_start_time
-            logger.info(f"S3 upload completed in {upload_elapsed:.2f} seconds, uploaded {len(s3_urls)} files")
-        except Exception as upload_error:
-            upload_elapsed = time.time() - upload_start_time
-            logger.error(f"S3 upload failed after {upload_elapsed:.2f} seconds: {upload_error}")
-            logger.error(traceback.format_exc())
-            raise
+        # Upload image to S3 so RunPod can access it
+        logger.info("Uploading image to S3...")
+        from .s3_upload import upload_file_to_s3
         
-        # Map relative file paths to S3 URLs for easier access
-        # Preserves subdirectory structure (e.g., "image-name/semantic-segmentation.jpg")
-        file_urls = {}
-        output_dir_path = Path(result["output_dir"]).resolve()
-        for local_file, s3_url in s3_urls.items():
-            file_path = Path(local_file).resolve()
-            try:
-                relative_path = file_path.relative_to(output_dir_path)
-                file_urls[relative_path.as_posix()] = s3_url
-            except ValueError:
-                # Fallback to filename if path calculation fails
-                file_urls[file_path.name] = s3_url
+        image_s3_key = f"{s3_prefix_normalized}input/{file_id}{suffix}"
+        image_url = upload_file_to_s3(
+            local_file=str(input_path),
+            bucket_name=s3_bucket,
+            s3_key=image_s3_key,
+            region=os.getenv('AWS_REGION')
+        )
         
-        response = {
-            "message": "analysis complete",
-            "s3_bucket": s3_bucket,
-            "s3_prefix": s3_prefix_normalized,
-            "files": file_urls,  # Dict of filename -> S3 URL
-            "debug": debug,
-        }
+        logger.info(f"Image uploaded to S3: {image_url}")
         
-        if patient_name:
-            response["patient_name"] = patient_name
+        # Submit job to RunPod
+        logger.info("Submitting job to RunPod...")
+        from .runpod_client import submit_inference_job, wait_for_completion
         
-        total_elapsed = time.time() - request_start_time
-        logger.info(f"=== REQUEST COMPLETED SUCCESSFULLY in {total_elapsed:.2f} seconds ===")
-        return response
+        job_result = submit_inference_job(
+            image_url=image_url,
+            s3_bucket=s3_bucket,
+            s3_prefix=s3_prefix_normalized,
+            debug=debug
+        )
+        job_id = job_result.get("id")
+        
+        logger.info(f"Job submitted to RunPod: {job_id}")
+        
+        # If client wants to wait, poll for results
+        if wait_for_result:
+            logger.info("Waiting for RunPod job completion...")
+            result = await asyncio.to_thread(wait_for_completion, job_id, timeout=120)
+            
+            output = result.get("output", {})
+            
+            total_elapsed = time.time() - request_start_time
+            logger.info(f"=== REQUEST COMPLETED in {total_elapsed:.2f}s ===")
+            
+            response = {
+                "message": "analysis complete",
+                "job_id": job_id,
+                "s3_bucket": s3_bucket,
+                "s3_prefix": s3_prefix_normalized,
+                "findings": output.get("findings", []),
+                "csv_data": output.get("csv_data"),
+                "debug_images": output.get("debug_images", {}),
+                "elapsed_time": total_elapsed
+            }
+            
+            if patient_name:
+                response["patient_name"] = patient_name
+            
+            return response
+        else:
+            # Return job ID immediately
+            total_elapsed = time.time() - request_start_time
+            logger.info(f"=== JOB SUBMITTED in {total_elapsed:.2f}s ===")
+            
+            response = {
+                "message": "job submitted",
+                "job_id": job_id,
+                "status_url": f"/job-status/{job_id}",
+                "elapsed_time": total_elapsed
+            }
+            
+            if patient_name:
+                response["patient_name"] = patient_name
+            
+            return response
         
     except Exception as e:
         total_elapsed = time.time() - request_start_time
-        logger.error(f"=== REQUEST FAILED after {total_elapsed:.2f} seconds ===")
+        logger.error(f"=== REQUEST FAILED after {total_elapsed:.2f}s ===")
         logger.error(f"Error: {e}")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)},
+        )
+
+
+@app.get("/job-status/{job_id}")
+async def get_job_status_endpoint(job_id: str):
+    """
+    Get the status of a submitted RunPod job.
+    
+    Returns:
+        {
+            "id": "job-id",
+            "status": "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED" | "FAILED",
+            "output": {...}  # Only present when COMPLETED
+        }
+    """
+    try:
+        from .runpod_client import get_job_status
+        result = get_job_status(job_id)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get job status for {job_id}: {e}")
         logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=500,
