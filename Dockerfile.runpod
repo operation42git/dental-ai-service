@@ -20,11 +20,14 @@ RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
 # Force uninstall any existing NumPy 2.x and install 1.x
 # This must be done BEFORE installing any other packages
 RUN pip uninstall -y numpy || true
-RUN pip install --no-cache-dir --force-reinstall "numpy>=1.21,<2.0"
+RUN pip install --no-cache-dir --force-reinstall "numpy==1.24.3"
 
-# Install dental-pano-ai dependencies in stages for better error handling
+# Create constraints file to prevent NumPy upgrade
+RUN echo "numpy==1.24.3" > /tmp/constraints.txt
+
+# Install dental-pano-ai dependencies with constraints to prevent NumPy upgrade
 # Install basic dependencies first
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
     opencv-python-headless \
     pandas \
     absl-py \
@@ -32,8 +35,8 @@ RUN pip install --no-cache-dir \
     matplotlib \
     scipy
 
-# Install detectron2 dependencies
-RUN pip install --no-cache-dir \
+# Install detectron2 dependencies with NumPy constraint
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
     fvcore \
     pycocotools \
     iopath \
@@ -50,10 +53,14 @@ RUN pip install --no-cache-dir 'git+https://github.com/facebookresearch/detectro
 
 # Install ultralytics (YOLO) - pin to version that works with dental-pano-ai
 # Version 8.3.80 is known to work (same as DigitalOcean deployment)
-RUN pip install --no-cache-dir "ultralytics==8.3.80"
+# Use constraint to prevent NumPy upgrade
+RUN pip install --no-cache-dir -c /tmp/constraints.txt "ultralytics==8.3.80"
 
-# Install RunPod SDK
-RUN pip install --no-cache-dir runpod requests
+# Install RunPod SDK with NumPy constraint
+RUN pip install --no-cache-dir -c /tmp/constraints.txt runpod requests
+
+# Verify NumPy version is correct
+RUN python -c "import numpy; print(f'NumPy version: {numpy.__version__}'); assert numpy.__version__.startswith('1.'), f'NumPy version {numpy.__version__} is not 1.x!'"
 
 # Download and extract models
 RUN cd /app/dental-pano-ai && \
