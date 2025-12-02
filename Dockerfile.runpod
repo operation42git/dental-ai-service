@@ -3,10 +3,12 @@
 
 FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 
-# Install system dependencies
+# Install system dependencies including build tools for detectron2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
+    build-essential \
+    ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,9 +33,14 @@ RUN pip install --no-cache-dir \
     iopath \
     omegaconf
 
-# Install detectron2 from pre-built wheel
-RUN pip install --no-cache-dir \
-    detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu118/torch2.1/index.html
+# Install detectron2 from source with proper build environment
+# Set environment variables for faster compilation
+ENV TORCH_CUDA_ARCH_LIST="7.0 7.5 8.0 8.6+PTX"
+ENV FORCE_CUDA="1"
+
+RUN pip install --no-cache-dir 'git+https://github.com/facebookresearch/detectron2.git' || \
+    (echo "Detectron2 build failed, trying alternative installation..." && \
+     pip install --no-cache-dir detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu118/torch2.0/index.html)
 
 # Install ultralytics (YOLO)
 RUN pip install --no-cache-dir ultralytics
