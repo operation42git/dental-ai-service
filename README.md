@@ -1,142 +1,188 @@
-# Dental AI Inference Service
+# Dental AI Service - RunPod Serverless
 
-Small HTTP service that wraps the **dental-pano-ai** project and exposes it as a REST API.
+GPU-powered dental panoramic X-ray analysis service deployed on RunPod Serverless.
 
-- Original repo: https://github.com/stmharry/dental-pano-ai
-- Endpoint: `POST /analyze-ortopan`
-- Framework: FastAPI
-- Model weights are **not stored in git**; they are downloaded during Docker build or manually for local development.
+- **Original AI Model**: [dental-pano-ai](https://github.com/stmharry/dental-pano-ai)
+- **Platform**: RunPod Serverless (GPU)
+- **Response Time**: ~15-25 seconds
+- **Cost**: ~$0.01 per image (pay-per-use)
+
+## What This Service Does
+
+Analyzes dental panoramic X-rays and detects:
+- Missing teeth
+- Implants
+- Fillings
+- Caries (cavities)
+- Root canal fillings
+- Crowns/bridges
+- Periapical radiolucencies
+- Residual roots
+
+## Architecture
+
+```
+Web App → RunPod Serverless → Returns Results
+```
+
+**RunPod handles:**
+- AI inference (GPU-accelerated)
+- Returns findings + CSV + debug images
+
+**Web app handles:**
+- Image upload
+- Calling RunPod API
+- Displaying results
+- S3 storage (after user approval)
+- Business logic
+
+## Quick Start
+
+### 1. Deploy to RunPod
+
+See [RUNPOD_SETUP.md](RUNPOD_SETUP.md) for detailed setup instructions.
+
+**Quick steps:**
+1. Sign up at [RunPod.io](https://www.runpod.io/)
+2. Create Serverless Endpoint
+3. Connect to this GitHub repo
+4. Set Dockerfile path: `Dockerfile.runpod`
+5. Select GPU (RTX 4090 recommended)
+6. Deploy
+
+### 2. Test the Endpoint
+
+See [RUNPOD_TEST.md](RUNPOD_TEST.md) for testing instructions.
+
+**Quick test:**
+```bash
+curl -X POST https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "image_url": "https://example.com/dental-xray.jpg",
+      "debug": true
+    }
+  }'
+```
+
+### 3. Integrate with Your Web App
+
+Add to your web app backend:
+
+```javascript
+// Call RunPod
+const response = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    input: {
+      image_url: imageUrl,
+      debug: true
+    }
+  })
+});
+
+const { id: jobId } = await response.json();
+
+// Poll for results
+const result = await pollForResults(jobId);
+
+// result.output contains:
+// - findings: Array of detected findings
+// - csv_data: CSV string
+// - debug_images: Base64 encoded images (if debug=true)
+```
+
+## API Reference
+
+### Input Format
+
+```json
+{
+  "input": {
+    "image_url": "https://example.com/image.jpg",
+    "debug": false
+  }
+}
+```
+
+**Parameters:**
+- `image_url` (required): Publicly accessible URL to dental X-ray image
+- `debug` (optional): If `true`, returns visualization images (default: `false`)
+
+### Output Format
+
+```json
+{
+  "findings": [
+    {
+      "fdi": "11",
+      "finding": "CARIES",
+      "score": 0.95
+    },
+    ...
+  ],
+  "csv_data": "file_name,fdi,finding,score\n...",
+  "num_findings": 256,
+  "debug_images": {
+    "semantic-segmentation.jpg": "base64_encoded_data...",
+    "instance-detection.jpg": "base64_encoded_data..."
+  }
+}
+```
+
+**Fields:**
+- `findings`: Array of detected findings with FDI notation, finding type, and confidence score
+- `csv_data`: CSV format of findings
+- `num_findings`: Total number of findings
+- `debug_images`: Base64 encoded debug visualization images (only if `debug=true`)
+
+## Performance
+
+| Metric | Value |
+|--------|-------|
+| Cold start (with FlashBoot) | <200ms |
+| Inference time (GPU) | 15-25 seconds |
+| Total response time | 15-30 seconds |
+
+## Cost
+
+| Volume | Monthly Cost |
+|--------|--------------|
+| 100 images | ~$1 |
+| 1,000 images | ~$10 |
+| 10,000 images | ~$100 |
+
+Based on RTX 4090 pricing (~$0.01 per image).
+
+## Files in This Repo
+
+- `Dockerfile.runpod` - Docker image for RunPod deployment
+- `runpod_handler_simple.py` - Inference handler (no S3 logic)
+- `RUNPOD_SETUP.md` - Detailed setup guide
+- `RUNPOD_TEST.md` - Testing guide with examples
+- `README.md` - This file
 
 ## Local Development
 
-### Prerequisites
+This service is designed to run on RunPod's GPU infrastructure. For local development:
 
-- Python 3.11+
-- Git
-- Poetry (for installing dental-pano-ai dependencies)
-- wget or curl (for downloading models)
+1. Clone the repo
+2. Install dependencies (see `Dockerfile.runpod` for package list)
+3. Download models from [dental-pano-ai S3](https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz)
+4. Run the handler locally (requires GPU for reasonable performance)
 
-### Setup Steps
+## Support
 
-1. **Clone and navigate to the repository:**
-   ```bash
-   git clone <this-repo>
-   cd dental-ai-service
-   ```
+- RunPod Documentation: https://docs.runpod.io/
+- Original Model: https://github.com/stmharry/dental-pano-ai
+- Issues: Create an issue in this repository
 
-2. **Create a virtual environment:**
-   ```bash
-   python -m venv venv
-   
-   # On Windows:
-   venv\Scripts\activate
-   
-   # On Linux/Mac:
-   source venv/bin/activate
-   ```
+## License
 
-3. **Install FastAPI dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Clone the dental-pano-ai repository:**
-   ```bash
-   git clone https://github.com/stmharry/dental-pano-ai.git dental-pano-ai
-   ```
-
-5. **Install dental-pano-ai dependencies:**
-   ```bash
-   cd dental-pano-ai
-   pip install poetry
-   poetry install --no-root
-   cd ..
-   ```
-
-6. **Download and extract models:**
-   ```bash
-   # Download models
-   wget https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz
-   # Or on Windows without wget, use PowerShell:
-   # Invoke-WebRequest -Uri https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz -OutFile models.tar.gz
-   
-   # Extract to dental-pano-ai directory
-   cd dental-pano-ai
-   tar -xzf ../models.tar.gz
-   # Or on Windows, use 7-Zip or similar tool
-   cd ..
-   
-   # Clean up
-   rm models.tar.gz  # or del models.tar.gz on Windows
-   ```
-
-7. **Configure environment variables (optional):**
-   
-   Create a `.env` file in the project root (optional, defaults work for local dev):
-   ```bash
-   cp .env.example .env
-   ```
-   
-   Edit `.env` if needed. The defaults should work for local development:
-   - `DENTAL_PANO_AI_REPO_DIR=./dental-pano-ai`
-   - `UPLOAD_DIR=./uploads`
-   - `PYTHON_EXECUTABLE=python`
-
-8. **Run the service:**
-   ```bash
-   uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-9. **Test the service:**
-   ```bash
-   # Health check
-   curl http://localhost:8000/health
-   
-   # Analyze an image (replace test-image.png with your image)
-   curl -X POST http://localhost:8000/analyze-ortopan \
-     -F "file=@test-image.png"
-   ```
-
-   Or visit http://localhost:8000/docs for the interactive API documentation.
-
-### Environment Variables
-
-The service supports the following environment variables:
-
-- `BASE_DIR` - Base directory (defaults to `/app` for Docker)
-- `DENTAL_PANO_AI_REPO_DIR` - Path to dental-pano-ai repository (defaults to `{BASE_DIR}/dental-pano-ai`)
-- `UPLOAD_DIR` - Directory for temporary uploads (defaults to `{BASE_DIR}/uploads`)
-- `PYTHON_EXECUTABLE` - Python executable command (defaults to `python`)
-
-For local development, you typically only need to set:
-- `DENTAL_PANO_AI_REPO_DIR=./dental-pano-ai` (or absolute path)
-
-## Docker Build
-
-The Dockerfile is configured to download models from the original S3 location automatically.
-
-```bash
-docker build -t your-docker-user/dental-ai-service:latest .
-```
-
-**Note:** The models are downloaded from: https://dental-pano-ai.s3.ap-southeast-1.amazonaws.com/models.tar.gz
-
-### Run Docker Container
-
-```bash
-docker run -p 8000:8000 your-docker-user/dental-ai-service:latest
-```
-
-## API Endpoints
-
-- `GET /health` - Health check endpoint
-- `POST /analyze-ortopan` - Upload and analyze a dental panoramic image
-  - Request: multipart/form-data with `file` field
-  - Response: JSON with analysis results including output directory and files
-
-## Notes
-
-- Model files are large and not stored in git
-- The service requires the dental-pano-ai repository to be cloned locally
-- Upload directory is created automatically if it doesn't exist
-- Results are stored in `{DENTAL_PANO_AI_REPO_DIR}/results/` directory
+This wrapper service follows the same license as the original dental-pano-ai project.

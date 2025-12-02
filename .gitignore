@@ -30,7 +30,7 @@ dental-pano-ai/uploads/
 dental-pano-ai/results/
 results/
 
-# Cloned repository (cloned during Docker build, not needed in git)
+# Cloned repository (cloned during Docker build)
 dental-pano-ai/
 
 # OS files
@@ -41,6 +41,10 @@ Thumbs.db
 *.log
 logs/
 
-# AWS credentials (if accidentally committed)
+# AWS credentials
 .aws/
 *.pem
+
+# Local test files
+test_images/
+output/

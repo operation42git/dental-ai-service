@@ -56,8 +56,8 @@ RUN pip install --no-cache-dir 'git+https://github.com/facebookresearch/detectro
 # Use constraint to prevent NumPy upgrade
 RUN pip install --no-cache-dir -c /tmp/constraints.txt "ultralytics==8.3.80"
 
-# Install RunPod SDK and boto3 for S3 uploads with NumPy constraint
-RUN pip install --no-cache-dir -c /tmp/constraints.txt runpod requests boto3
+# Install RunPod SDK (no boto3 needed - web app handles S3)
+RUN pip install --no-cache-dir -c /tmp/constraints.txt runpod requests
 
 # Verify NumPy version is correct
 RUN python -c "import numpy; print(f'NumPy version: {numpy.__version__}'); assert numpy.__version__.startswith('1.'), f'NumPy version {numpy.__version__} is not 1.x!'"
@@ -69,8 +69,8 @@ RUN cd /app/dental-pano-ai && \
     tar -xzf /tmp/models.tar.gz -C /app/dental-pano-ai && \
     rm /tmp/models.tar.gz
 
-# Copy the handler
-COPY runpod_handler.py /app/handler.py
+# Copy the simplified handler (no S3 logic)
+COPY runpod_handler_simple.py /app/handler.py
 
 # Set environment variable
 ENV DENTAL_PANO_AI_DIR=/app/dental-pano-ai
