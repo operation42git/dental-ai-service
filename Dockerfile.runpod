@@ -16,6 +16,10 @@ WORKDIR /app
 # Clone dental-pano-ai repository
 RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
 
+# Fix NumPy version incompatibility
+# Downgrade to NumPy 1.x which is compatible with pre-compiled detectron2
+RUN pip install --no-cache-dir "numpy<2.0"
+
 # Install dental-pano-ai dependencies in stages for better error handling
 # Install basic dependencies first
 RUN pip install --no-cache-dir \
@@ -42,8 +46,9 @@ RUN pip install --no-cache-dir 'git+https://github.com/facebookresearch/detectro
     (echo "Detectron2 build failed, trying alternative installation..." && \
      pip install --no-cache-dir detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu118/torch2.0/index.html)
 
-# Install ultralytics (YOLO)
-RUN pip install --no-cache-dir ultralytics
+# Install ultralytics (YOLO) - pin to version that works with dental-pano-ai
+# Version 8.3.80 is known to work (same as DigitalOcean deployment)
+RUN pip install --no-cache-dir "ultralytics==8.3.80"
 
 # Install RunPod SDK
 RUN pip install --no-cache-dir runpod requests
