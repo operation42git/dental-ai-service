@@ -86,13 +86,27 @@ def handler(event):
         }
     """
     try:
-        input_data = event["input"]
+        input_data = event.get("input", {})
+        
+        # Validate required fields
+        if "image_url" not in input_data:
+            return {
+                "error": "Missing required field: image_url",
+                "expected_input": {
+                    "image_url": "https://...",
+                    "s3_bucket": "bucket-name (optional)",
+                    "s3_prefix": "path/to/folder/ (optional)",
+                    "debug": False
+                }
+            }
+        
         image_url = input_data["image_url"]
         s3_bucket = input_data.get("s3_bucket")
         s3_prefix = input_data.get("s3_prefix", "")
         debug = input_data.get("debug", False)
         
         logger.info(f"Processing image: {image_url}")
+        logger.info(f"S3 bucket: {s3_bucket}, prefix: {s3_prefix}")
         logger.info(f"Debug mode: {debug}")
         
         # Download image

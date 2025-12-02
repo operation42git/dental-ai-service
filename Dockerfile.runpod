@@ -16,9 +16,11 @@ WORKDIR /app
 # Clone dental-pano-ai repository
 RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
 
-# Fix NumPy version incompatibility
-# Downgrade to NumPy 1.x which is compatible with pre-compiled detectron2
-RUN pip install --no-cache-dir "numpy<2.0"
+# Fix NumPy version incompatibility - CRITICAL FIX
+# Force uninstall any existing NumPy 2.x and install 1.x
+# This must be done BEFORE installing any other packages
+RUN pip uninstall -y numpy || true
+RUN pip install --no-cache-dir --force-reinstall "numpy>=1.21,<2.0"
 
 # Install dental-pano-ai dependencies in stages for better error handling
 # Install basic dependencies first
