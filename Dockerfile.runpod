@@ -14,15 +14,22 @@ WORKDIR /app
 # Clone dental-pano-ai repository
 RUN git clone https://github.com/stmharry/dental-pano-ai.git /app/dental-pano-ai
 
-# Install dental-pano-ai dependencies
-RUN pip install --no-cache-dir "poetry==1.8.3" && \
-    cd /app/dental-pano-ai && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-root && \
-    rm -rf /root/.cache/pypoetry
+# Install dental-pano-ai dependencies directly (skip Poetry for simpler build)
+# The runpod/pytorch base image already has torch and torchvision
+RUN pip install --no-cache-dir \
+    ultralytics \
+    detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu118/torch2.1/index.html \
+    opencv-python-headless \
+    pandas \
+    absl-py \
+    pillow \
+    matplotlib \
+    scipy \
+    fvcore \
+    pycocotools
 
 # Install RunPod SDK and other dependencies
-RUN pip install --no-cache-dir runpod requests pillow
+RUN pip install --no-cache-dir runpod requests
 
 # Download and extract models
 RUN cd /app/dental-pano-ai && \
