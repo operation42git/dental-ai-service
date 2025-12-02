@@ -57,9 +57,9 @@ curl https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/status/abc123-xyz \
     ],
     "csv_data": "file_name,fdi,finding,score\ntmpxyz,11,CARIES,0.95\n...",
     "num_findings": 256,
-    "debug_images": {
-      "semantic-segmentation.jpg": "base64_encoded_image_data...",
-      "instance-detection.jpg": "base64_encoded_image_data..."
+    "debug_image_urls": {
+      "semantic-segmentation.jpg": "https://fra1.digitaloceanspaces.com/kisdentalchart/temp/job-abc123/semantic-segmentation.jpg",
+      "instance-detection.jpg": "https://fra1.digitaloceanspaces.com/kisdentalchart/temp/job-abc123/instance-detection.jpg"
     }
   }
 }
@@ -117,37 +117,40 @@ tmpxyz,12,FILLING,0.88
 ...
 ```
 
-### Debug Images (if debug=true):
+### Debug Image URLs (if debug=true):
 ```json
-"debug_images": {
-  "semantic-segmentation.jpg": "iVBORw0KGgoAAAANSUhEUgAA...",  // base64
-  "instance-detection.jpg": "iVBORw0KGgoAAAANSUhEUgAA..."      // base64
+"debug_image_urls": {
+  "semantic-segmentation.jpg": "https://fra1.digitaloceanspaces.com/kisdentalchart/temp/job-abc123/semantic-segmentation.jpg",
+  "instance-detection.jpg": "https://fra1.digitaloceanspaces.com/kisdentalchart/temp/job-abc123/instance-detection.jpg"
 }
 ```
 
-## Decoding Base64 Images
+**Note:** These are temporary URLs that expire after 24 hours (S3 lifecycle rule).
+
+## Displaying Images
 
 ### In JavaScript:
 ```javascript
-const debugImages = result.output.debug_images;
-for (const [filename, base64Data] of Object.entries(debugImages)) {
+const debugImageUrls = result.output.debug_image_urls;
+for (const [filename, url] of Object.entries(debugImageUrls)) {
   const img = document.createElement('img');
-  img.src = `data:image/jpeg;base64,${base64Data}`;
+  img.src = url;  // Direct S3 URL - no decoding needed!
   document.body.appendChild(img);
 }
 ```
 
-### In Python:
-```python
-import base64
-from PIL import Image
-import io
+### In HTML:
+```html
+<img src="https://fra1.digitaloceanspaces.com/kisdentalchart/temp/job-abc123/semantic-segmentation.jpg" />
+```
 
-debug_images = result['output']['debug_images']
-for filename, base64_data in debug_images.items():
-    img_data = base64.b64decode(base64_data)
-    img = Image.open(io.BytesIO(img_data))
-    img.save(f"output/{filename}")
+### Saving Permanently:
+```javascript
+// If user approves, copy from temp to permanent storage
+await copyS3Object({
+  from: 'temp/job-abc123/semantic-segmentation.jpg',
+  to: `patients/${patientId}/analysis-${timestamp}/semantic-segmentation.jpg`
+});
 ```
 
 ## Troubleshooting

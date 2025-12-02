@@ -4,8 +4,8 @@ RunPod serverless handler for dental AI inference - Simplified version.
 This handler:
 1. Receives image URL
 2. Runs AI inference
-3. Returns findings + CSV + debug images (as base64)
-4. NO S3 logic - web app handles storage
+3. Uploads results to temp S3 folder (auto-expires after 24 hours)
+4. Returns findings + CSV data + S3 URLs for debug images
 
 Input:
 {
@@ -17,7 +17,10 @@ Output:
 {
     "findings": [...],
     "csv_data": "...",
-    "debug_images": {"semantic-segmentation.jpg": "base64...", ...}
+    "debug_image_urls": {
+        "semantic-segmentation.jpg": "https://s3.../temp/job-123/semantic.jpg",
+        "instance-detection.jpg": "https://s3.../temp/job-123/instance.jpg"
+    }
 }
 """
 import runpod
@@ -95,14 +98,17 @@ def handler(event):
             "findings": [{"fdi": "11", "finding": "CARIES", "score": 0.95}, ...],
             "csv_data": "file_name,fdi,finding,score\n...",
             "num_findings": 15,
-            "debug_images": {
-                "semantic-segmentation.jpg": "base64...",
-                "instance-detection.jpg": "base64..."
+            "debug_image_urls": {
+                "semantic-segmentation.jpg": "https://s3.../temp/job-123/semantic.jpg",
+                "instance-detection.jpg": "https://s3.../temp/job-123/instance.jpg"
             } (if debug=true)
         }
     """
     try:
         input_data = event.get("input", {})
+        
+        # Get job ID from event for temp folder naming
+        job_id = event.get("id", "unknown")
         
         # Validate required fields
         if "image_url" not in input_data:
@@ -117,6 +123,7 @@ def handler(event):
         image_url = input_data["image_url"]
         debug = input_data.get("debug", False)
         
+        logger.info(f"Job ID: {job_id}")
         logger.info(f"Processing image: {image_url}")
         logger.info(f"Debug mode: {debug}")
         
@@ -194,18 +201,81 @@ def handler(event):
             "num_findings": int(len(finding_entries))
         }
         
-        # Include debug images as base64 if requested
+        # Upload debug images to temp S3 if requested
         if debug:
-            logger.info("Encoding debug images as base64...")
-            debug_images = {}
-            for img_file in image_output_dir.glob("*.jpg"):
-                with open(img_file, 'rb') as f:
-                    img_data = f.read()
-                    img_base64 = base64.b64encode(img_data).decode('utf-8')
-                    debug_images[img_file.name] = img_base64
+            logger.info("Uploading debug images to temp S3...")
             
-            output["debug_images"] = debug_images
-            logger.info(f"Encoded {len(debug_images)} debug images")
+            # Get S3 configuration from environment
+            s3_bucket_url = os.getenv('S3_BUCKET')
+            s3_temp_prefix = os.getenv('S3_TEMP_PREFIX', 'temp/')
+            
+            if not s3_bucket_url:
+                logger.warning("S3_BUCKET not set, returning images as base64 fallback")
+                # Fallback to base64
+                debug_images = {}
+                for img_file in image_output_dir.glob("*.jpg"):
+                    with open(img_file, 'rb') as f:
+                        img_data = f.read()
+                        img_base64 = base64.b64encode(img_data).decode('utf-8')
+                        debug_images[img_file.name] = f"data:image/jpeg;base64,{img_base64}"
+                output["debug_image_urls"] = debug_images
+            else:
+                # Upload to S3
+                import boto3
+                import re
+                
+                # Parse bucket and endpoint
+                bucket_name = s3_bucket_url
+                endpoint_url = None
+                
+                do_spaces_match = re.match(r'https?://([^.]+)\.([^.]+)\.digitaloceanspaces\.com', s3_bucket_url)
+                if do_spaces_match:
+                    bucket_name = do_spaces_match.group(1)
+                    region = do_spaces_match.group(2)
+                    endpoint_url = f"https://{region}.digitaloceanspaces.com"
+                else:
+                    region = os.getenv('AWS_REGION', 'us-east-1')
+                
+                # Get credentials
+                aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+                aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+                
+                if not aws_access_key or not aws_secret_key:
+                    logger.warning("S3 credentials not found, skipping upload")
+                else:
+                    # Create S3 client
+                    s3_client = boto3.client(
+                        's3',
+                        region_name=region,
+                        endpoint_url=endpoint_url if endpoint_url else None,
+                        aws_access_key_id=aws_access_key,
+                        aws_secret_access_key=aws_secret_key
+                    )
+                    
+                    # Upload debug images to temp folder
+                    debug_image_urls = {}
+                    for img_file in image_output_dir.glob("*.jpg"):
+                        # Upload to temp/job-{id}/filename.jpg
+                        s3_key = f"{s3_temp_prefix}job-{job_id}/{img_file.name}"
+                        logger.info(f"Uploading {img_file.name} to {s3_key}")
+                        
+                        s3_client.upload_file(
+                            str(img_file),
+                            bucket_name,
+                            s3_key,
+                            ExtraArgs={'ACL': 'public-read'}
+                        )
+                        
+                        # Generate public URL
+                        if endpoint_url:
+                            img_url = f"{endpoint_url}/{bucket_name}/{s3_key}"
+                        else:
+                            img_url = f"https://{bucket_name}.s3.{region}.amazonaws.com/{s3_key}"
+                        
+                        debug_image_urls[img_file.name] = img_url
+                    
+                    output["debug_image_urls"] = debug_image_urls
+                    logger.info(f"Uploaded {len(debug_image_urls)} debug images to temp S3")
         
         # Clean up temp files
         try:

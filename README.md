@@ -129,9 +129,9 @@ const result = await pollForResults(jobId);
   ],
   "csv_data": "file_name,fdi,finding,score\n...",
   "num_findings": 256,
-  "debug_images": {
-    "semantic-segmentation.jpg": "base64_encoded_data...",
-    "instance-detection.jpg": "base64_encoded_data..."
+  "debug_image_urls": {
+    "semantic-segmentation.jpg": "https://s3.../temp/job-123/semantic-segmentation.jpg",
+    "instance-detection.jpg": "https://s3.../temp/job-123/instance-detection.jpg"
   }
 }
 ```
@@ -140,7 +140,7 @@ const result = await pollForResults(jobId);
 - `findings`: Array of detected findings with FDI notation, finding type, and confidence score
 - `csv_data`: CSV format of findings
 - `num_findings`: Total number of findings
-- `debug_images`: Base64 encoded debug visualization images (only if `debug=true`)
+- `debug_image_urls`: S3 URLs to debug visualization images in temp folder (expire after 24 hours)
 
 ## Performance
 

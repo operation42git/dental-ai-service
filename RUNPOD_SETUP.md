@@ -52,10 +52,12 @@ docker push your-dockerhub-username/dental-ai-runpod:latest
      - **Max Workers**: 3-5 (for auto-scaling)
    - **Container Disk**: 10 GB
    - **Volume**: Not required (models are in the image)
-   - **Environment Variables** (for S3 uploads):
+   - **Environment Variables** (for temp S3 uploads):
      - `AWS_ACCESS_KEY_ID`: Your S3/Spaces access key
      - `AWS_SECRET_ACCESS_KEY`: Your S3/Spaces secret key
      - `AWS_REGION`: Your region (e.g., `fra1` for DigitalOcean Spaces)
+     - `S3_BUCKET`: Your S3 bucket URL (e.g., `https://kisdentalchart.fra1.digitaloceanspaces.com`)
+     - `S3_TEMP_PREFIX`: Temp folder prefix (e.g., `temp/`) - files auto-expire after 24 hours
    - **FlashBoot**: Enable for <200ms cold starts
 4. Click "Deploy"
 5. Copy the **Endpoint ID** (you'll need it)
