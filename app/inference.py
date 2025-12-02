@@ -129,6 +129,24 @@ def run_dental_pano_ai(input_image_path: str, debug: bool = False) -> dict:
             print(f"[INFERENCE] System memory: {sys_mem.used / 1024 / 1024:.2f} MB used / {sys_mem.total / 1024 / 1024:.2f} MB total ({sys_mem.percent:.1f}%)", flush=True)
         except Exception:
             pass
+        
+        # Free memory by clearing the semantic segmentation module from GPU/memory cache
+        # This reduces peak memory usage before running instance detection
+        logger.info("Clearing memory after semantic segmentation...")
+        print("[INFERENCE] Clearing memory after semantic segmentation...", flush=True)
+        try:
+            import torch
+            import gc
+            # Clear PyTorch cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # Force garbage collection
+            gc.collect()
+            logger.info("Memory cleared")
+            print("[INFERENCE] Memory cleared", flush=True)
+        except Exception as e:
+            logger.warning(f"Could not clear memory: {e}")
+            print(f"[INFERENCE] WARNING: Could not clear memory: {e}", flush=True)
     except Exception as e:
         elapsed = time.time() - start_time
         logger.error(f"Semantic segmentation failed after {elapsed:.2f} seconds: {e}")
